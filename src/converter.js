@@ -209,14 +209,18 @@ function getBounds(paths) {
   return bounds;
 }
 
-function hpglPoint(p, bounds) {
+function hpglPoint(p, bounds, userUnit) {
   return {
-    x: Math.round((p.x - bounds.minX) * PDF_POINTS_TO_MM * HPGL_UNITS_PER_MM),
-    y: Math.round((bounds.maxY - p.y) * PDF_POINTS_TO_MM * HPGL_UNITS_PER_MM)
+    x: Math.round(
+      (p.x - bounds.minX) * userUnit * PDF_POINTS_TO_MM * HPGL_UNITS_PER_MM
+    ),
+    y: Math.round(
+      (bounds.maxY - p.y) * userUnit * PDF_POINTS_TO_MM * HPGL_UNITS_PER_MM
+    )
   };
 }
 
-function generateHpgl(paths, bounds) {
+function generateHpgl(paths, bounds, userUnit) {
   const lines = ["IN;", "PA;", "SP1;"];
   let outputSegments = 0;
 
@@ -224,14 +228,14 @@ function generateHpgl(paths, bounds) {
     if (!path.length) continue;
 
     const first = path[0].type === "line" ? path[0].from : path[0].p0;
-    let current = hpglPoint(first, bounds);
+    let current = hpglPoint(first, bounds, userUnit);
 
     lines.push("PU" + current.x + "," + current.y + ";");
 
     for (const segment of path) {
       if (segment.type === "line") {
-        const from = hpglPoint(segment.from, bounds);
-        const to = hpglPoint(segment.to, bounds);
+        const from = hpglPoint(segment.from, bounds, userUnit);
+        const to = hpglPoint(segment.to, bounds, userUnit);
 
         if (from.x !== current.x || from.y !== current.y) {
           lines.push("PU" + from.x + "," + from.y + ";");
@@ -244,10 +248,10 @@ function generateHpgl(paths, bounds) {
       }
 
       const curve = {
-        p0: hpglPoint(segment.p0, bounds),
-        p1: hpglPoint(segment.p1, bounds),
-        p2: hpglPoint(segment.p2, bounds),
-        p3: hpglPoint(segment.p3, bounds)
+        p0: hpglPoint(segment.p0, bounds, userUnit),
+        p1: hpglPoint(segment.p1, bounds, userUnit),
+        p2: hpglPoint(segment.p2, bounds, userUnit),
+        p3: hpglPoint(segment.p3, bounds, userUnit)
       };
 
       const points = flattenCubic(
@@ -338,6 +342,53 @@ export async function convertPdfToPlt(inputPath, outputPath) {
         continue;
       }
 
+      if (op === OPS.paintFormXObjectBegin) {
+        stack.push({
+          matrix: [...matrix],
+          current: state.current,
+          subpath: state.subpath
+        });
+
+        if (Array.isArray(args[0]) && args[0].length === 6) {
+          matrix = multiply(matrix, args[0]);
+        }
+        continue;
+      }
+
+      if (op === OPS.paintFormXObjectEnd) {
+        const saved = stack.pop();
+        if (saved) {
+          matrix = saved.matrix;
+          state.current = saved.current;
+          state.subpath = saved.subpath;
+        }
+        continue;
+      }
+
+      if (op === OPS.beginGroup) {
+        const group = args[0] || {};
+        stack.push({
+          matrix: [...matrix],
+          current: state.current,
+          subpath: state.subpath
+        });
+
+        if (Array.isArray(group.matrix) && group.matrix.length === 6) {
+          matrix = multiply(matrix, group.matrix);
+        }
+        continue;
+      }
+
+      if (op === OPS.endGroup) {
+        const saved = stack.pop();
+        if (saved) {
+          matrix = saved.matrix;
+          state.current = saved.current;
+          state.subpath = saved.subpath;
+        }
+        continue;
+      }
+
       if (op === OPS.constructPath) {
         parseConstructPath(
           currentPath,
@@ -383,14 +434,14 @@ export async function convertPdfToPlt(inputPath, outputPath) {
     );
     const segments = paths.reduce((n, p) => n + p.length, 0);
 
-    const generated = generateHpgl(paths, bounds);
+    const generated = generateHpgl(paths, bounds, userUnit);
     await fs.writeFile(outputPath, generated.hpgl, "ascii");
     await page.cleanup();
 
     return {
       dimensions: {
-        widthMm: widthPt * PDF_POINTS_TO_MM,
-        heightMm: heightPt * PDF_POINTS_TO_MM
+        widthMm: widthPt * userUnit * PDF_POINTS_TO_MM,
+        heightMm: heightPt * userUnit * PDF_POINTS_TO_MM
       },
       geometry: {
         paths: paths.length,
