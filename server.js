@@ -16,6 +16,14 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const EXTERNAL_TIMEOUT_MS = 30_000;
 
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(2)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(2)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+}
+
 await fs.mkdir(UPLOAD_DIR, { recursive: true });
 await fs.mkdir(CONVERTED_DIR, { recursive: true });
 
