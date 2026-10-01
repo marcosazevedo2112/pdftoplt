@@ -226,6 +226,14 @@ function hpglPoint(p, bounds, userUnit) {
   };
 }
 
+function hpglCoord(value) {
+  return Math.round(value);
+}
+
+function formatHpglPoint(p) {
+  return `${hpglCoord(p.x)} ${hpglCoord(p.y)}`;
+}
+
 function getPathEndpoints(path) {
   if (!path.length) return null;
   const first = path[0].type === "line" ? path[0].from : path[0].p0;
@@ -254,7 +262,7 @@ function generateHpgl(paths, bounds, userUnit) {
 
     const first = path[0].type === "line" ? path[0].from : path[0].p0;
     let current = hpglPoint(first, bounds, userUnit);
-    lines.push(`PU${current.x} ${current.y};`);
+    lines.push(`PU${formatHpglPoint(current)};`);
 
     for (const segment of path) {
       if (segment.type === "line") {
@@ -262,9 +270,9 @@ function generateHpgl(paths, bounds, userUnit) {
         const to = hpglPoint(segment.to, bounds, userUnit);
 
         if (from.x !== current.x || from.y !== current.y) {
-          lines.push(`PU${from.x} ${from.y};`);
+          lines.push(`PU${formatHpglPoint(from)};`);
         }
-        lines.push(`PD${to.x} ${to.y};`);
+        lines.push(`PD${formatHpglPoint(to)};`);
         current = to;
         outputSegments++;
         continue;
@@ -283,7 +291,7 @@ function generateHpgl(paths, bounds, userUnit) {
 
       for (let i = 1; i < points.length; i++) {
         const p = points[i];
-        lines.push(`PD${p.x} ${p.y};`);
+        lines.push(`PD${formatHpglPoint(p)};`);
         current = p;
         outputSegments++;
       }
