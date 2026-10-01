@@ -150,7 +150,6 @@ PD4000,0;
 PD4000,2000;
 PD0,2000;
 PD0,0;
-PU;
 SP0;
 
 A extensão física esperada é:
