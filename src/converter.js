@@ -210,27 +210,51 @@ function getBounds(paths) {
 }
 
 function hpglPoint(p, bounds, userUnit) {
+  const scale = userUnit * PDF_POINTS_TO_MM * HPGL_UNITS_PER_MM;
+  const centered = process.env.HPGL_ORIGIN_MODE === "center";
+  const offsetX = Number(process.env.HPGL_OFFSET_X) || 0;
+  const offsetY = Number(process.env.HPGL_OFFSET_Y) || 0;
+
+  // O padrão preserva o mapeamento anterior. "center" é opcional e deve ser
+  // validado na máquina antes do uso em produção.
+  const originX = centered ? (bounds.minX + bounds.maxX) / 2 : bounds.minX;
+  const originY = centered ? (bounds.minY + bounds.maxY) / 2 : bounds.maxY;
+
   return {
-    x: Math.round(
-      (p.x - bounds.minX) * userUnit * PDF_POINTS_TO_MM * HPGL_UNITS_PER_MM
-    ),
-    y: Math.round(
-      (bounds.maxY - p.y) * userUnit * PDF_POINTS_TO_MM * HPGL_UNITS_PER_MM
-    )
+    x: Math.round((p.x - originX) * scale + offsetX),
+    y: Math.round((originY - p.y) * scale + offsetY)
   };
 }
 
+function getPathEndpoints(path) {
+  if (!path.length) return null;
+  const first = path[0].type === "line" ? path[0].from : path[0].p0;
+  const lastSegment = path[path.length - 1];
+  const last = lastSegment.type === "line" ? lastSegment.to : lastSegment.p3;
+  return { first, last };
+}
+
+function isClosedPath(path) {
+  const endpoints = getPathEndpoints(path);
+  return Boolean(endpoints && distance(endpoints.first, endpoints.last) <= 0.01);
+}
+
 function generateHpgl(paths, bounds, userUnit) {
-  const lines = ["IN;", "PA;", "SP1;"];
+  const lines = [
+    "IN;",
+    ...Array.from({ length: 8 }, (_, i) => `VS32,${i + 1};`),
+    "WU0;",
+    ...Array.from({ length: 8 }, (_, i) => `PW0.350,${i + 1};`)
+  ];
   let outputSegments = 0;
 
   for (const path of paths) {
     if (!path.length) continue;
+    lines.push("SP1;");
 
     const first = path[0].type === "line" ? path[0].from : path[0].p0;
     let current = hpglPoint(first, bounds, userUnit);
-
-    lines.push("PU" + current.x + "," + current.y + ";");
+    lines.push(`PU${current.x} ${current.y};`);
 
     for (const segment of path) {
       if (segment.type === "line") {
@@ -238,10 +262,9 @@ function generateHpgl(paths, bounds, userUnit) {
         const to = hpglPoint(segment.to, bounds, userUnit);
 
         if (from.x !== current.x || from.y !== current.y) {
-          lines.push("PU" + from.x + "," + from.y + ";");
+          lines.push(`PU${from.x} ${from.y};`);
         }
-
-        lines.push("PD" + to.x + "," + to.y + ";");
+        lines.push(`PD${to.x} ${to.y};`);
         current = to;
         outputSegments++;
         continue;
@@ -253,7 +276,6 @@ function generateHpgl(paths, bounds, userUnit) {
         p2: hpglPoint(segment.p2, bounds, userUnit),
         p3: hpglPoint(segment.p3, bounds, userUnit)
       };
-
       const points = flattenCubic(
         curve,
         CURVE_TOLERANCE_MM * HPGL_UNITS_PER_MM
@@ -261,20 +283,18 @@ function generateHpgl(paths, bounds, userUnit) {
 
       for (let i = 1; i < points.length; i++) {
         const p = points[i];
-        lines.push("PD" + p.x + "," + p.y + ";");
+        lines.push(`PD${p.x} ${p.y};`);
         current = p;
         outputSegments++;
       }
     }
 
+    if (isClosedPath(path)) lines.push("LT;");
     lines.push("PU;");
   }
 
   lines.push("SP0;");
-  return {
-    hpgl: lines.join("\n") + "\n",
-    outputSegments
-  };
+  return { hpgl: lines.join("\n") + "\n", outputSegments };
 }
 
 export async function convertPdfToPlt(inputPath, outputPath) {
