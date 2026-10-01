@@ -7,7 +7,7 @@ const HPGL_UNITS_PER_MM = Number(process.env.HPGL_UNITS_PER_MM) > 0
   : 40;
 const CURVE_TOLERANCE_MM = Number(process.env.CURVE_TOLERANCE_MM) > 0
   ? Number(process.env.CURVE_TOLERANCE_MM)
-  : 0.01;
+  : 0.05;
 const IDENTITY = [1, 0, 0, 1, 0, 0];
 
 function multiply(a, b) {
@@ -224,9 +224,30 @@ function generateHpgl(paths, bounds, userUnit) {
   const lines = ["IN;", "PA;", "SP1;"];
   let outputSegments = 0;
 
+  // Limita o tamanho de cada instrução para controladores HP-GL legados.
+  // PD aceita múltiplos pares de coordenadas em uma única instrução.
+  const MAX_POINTS_PER_PD = 24;
+  let pendingPoints = [];
+
+  function flushPenDown() {
+    if (!pendingPoints.length) return;
+    lines.push("PD" + pendingPoints.join(",") + ";");
+    pendingPoints = [];
+  }
+
+  function penDown(point) {
+    pendingPoints.push(point.x, point.y);
+    outputSegments++;
+
+    if (pendingPoints.length / 2 >= MAX_POINTS_PER_PD) {
+      flushPenDown();
+    }
+  }
+
   for (const path of paths) {
     if (!path.length) continue;
 
+    flushPenDown();
     const first = path[0].type === "line" ? path[0].from : path[0].p0;
     let current = hpglPoint(first, bounds, userUnit);
 
@@ -238,12 +259,12 @@ function generateHpgl(paths, bounds, userUnit) {
         const to = hpglPoint(segment.to, bounds, userUnit);
 
         if (from.x !== current.x || from.y !== current.y) {
+          flushPenDown();
           lines.push("PU" + from.x + "," + from.y + ";");
         }
 
-        lines.push("PD" + to.x + "," + to.y + ";");
+        penDown(to);
         current = to;
-        outputSegments++;
         continue;
       }
 
@@ -260,13 +281,12 @@ function generateHpgl(paths, bounds, userUnit) {
       );
 
       for (let i = 1; i < points.length; i++) {
-        const p = points[i];
-        lines.push("PD" + p.x + "," + p.y + ";");
-        current = p;
-        outputSegments++;
+        penDown(points[i]);
+        current = points[i];
       }
     }
 
+    flushPenDown();
     lines.push("PU;");
   }
 
