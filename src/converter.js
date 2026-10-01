@@ -290,7 +290,6 @@ function generateHpgl(paths, bounds, userUnit) {
     }
 
     if (isClosedPath(path)) lines.push("LT;");
-    lines.push("PU;");
   }
 
   lines.push("SP0;");
